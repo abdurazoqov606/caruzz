@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,16 +25,16 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -79,7 +78,6 @@ import kotlin.math.sin
 
 private data class Vec3(val x: Float, val y: Float, val z: Float) {
     operator fun minus(o: Vec3) = Vec3(x - o.x, y - o.y, z - o.z)
-    operator fun plus(o: Vec3) = Vec3(x + o.x, y + o.y, z + o.z)
     fun dot(o: Vec3) = x * o.x + y * o.y + z * o.z
     fun cross(o: Vec3) = Vec3(y * o.z - z * o.y, z * o.x - x * o.z, x * o.y - y * o.x)
     fun norm(): Vec3 {
@@ -156,21 +154,44 @@ fun SandboxScreen(
         ) {
             val w = size.width
             val h = size.height
-            val dist = if (activeCar != null) 9.0f else 6.2f
-            val target = Vec3(state.playerX, if (activeCar != null) 1.3f else 1.4f, state.playerZ)
-            val horiz = dist * cos(state.cameraPitch)
-            val camPos = Vec3(
-                target.x + sin(state.cameraYaw) * horiz,
-                target.y + dist * sin(state.cameraPitch) + 1.4f,
-                target.z + cos(state.cameraYaw) * horiz
-            )
+
+            val camPos: Vec3
+            val target: Vec3
+            if (state.cameraMode == CameraMode.FIRST_PERSON) {
+                val eyeY = if (activeCar != null) 1.35f else 1.6f
+                val fwdOffset = if (activeCar != null) 0.4f else 0.1f
+                val lookYaw = if (activeCar != null) activeCar.yaw else state.cameraYaw
+                camPos = Vec3(
+                    state.playerX - sin(lookYaw) * fwdOffset,
+                    eyeY,
+                    state.playerZ - cos(lookYaw) * fwdOffset
+                )
+                target = Vec3(
+                    camPos.x - sin(state.cameraYaw) * 10f,
+                    eyeY - sin(state.cameraPitch) * 5f,
+                    camPos.z - cos(state.cameraYaw) * 10f
+                )
+            } else {
+                val dist = when (state.cameraMode) {
+                    CameraMode.FAR -> if (activeCar != null) 12.5f else 9.0f
+                    else -> if (activeCar != null) 6.0f else 4.8f
+                }
+                target = Vec3(state.playerX, if (activeCar != null) 1.3f else 1.4f, state.playerZ)
+                val pitch = state.cameraPitch.coerceIn(0.08f, 0.95f)
+                val horiz = dist * cos(pitch)
+                camPos = Vec3(
+                    target.x + sin(state.cameraYaw) * horiz,
+                    target.y + dist * sin(pitch) + 1.0f,
+                    target.z + cos(state.cameraYaw) * horiz
+                )
+            }
+
             val forward = (target - camPos).norm()
             val right = forward.cross(Vec3(0f, 1f, 0f)).norm()
             val up = right.cross(forward).norm()
             val cam = Cam3D(camPos, right, up, forward, w / 2f, h / 2f, w * 0.92f)
 
-            // Sky + Horizon
-            val horizonY = (h / 2f - (up.y.coerceIn(-1f, 1f) * 0f) + forward.y * cam.focal).coerceIn(0f, h)
+            val horizonY = (h / 2f + forward.y * cam.focal).coerceIn(0f, h)
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(Color(0xFF0C4A6E), Color(0xFF38BDF8), Color(0xFFBAE6FD)),
@@ -189,20 +210,16 @@ fun SandboxScreen(
                 size = Size(w, (h - horizonY).coerceAtLeast(0f))
             )
 
-            // 3D Roads (North-South & East-West avenues)
             drawRoadStrip(cam, -5f, 5f, -95f, 95f, Color(0xFF111827), northSouth = true)
             drawRoadStrip(cam, -95f, 95f, -5f, 5f, Color(0xFF111827), northSouth = false)
 
-            // Collect 3D scene objects & sort far-to-near (Painter's algorithm)
             val items = mutableListOf<Drawable3D>()
-
             fun distToCam(x: Float, z: Float): Float {
                 val dx = x - camPos.x
                 val dz = z - camPos.z
                 return dx * dx + dz * dz
             }
 
-            // City Buildings
             val buildings = listOf(
                 Triple(-22f, -22f, Vec3(14f, 18f, 14f)),
                 Triple(22f, -24f, Vec3(14f, 24f, 16f)),
@@ -217,17 +234,17 @@ fun SandboxScreen(
                 })
             }
 
-            // Toshkent Teleminorasi (3D Tower)
-            val tx = 38f
-            val tz = -48f
+            // Toshkent Teleminorasi
+            val tx = 36f
+            val tz = -38f
             items.add(Drawable3D(distToCam(tx, tz)) { c ->
                 drawBox3D(c, Vec3(tx, 0f, tz), 6f, 12f, 6f, 0f, TashkentGold, Color(0xFFD97706), Color(0xFFFBBF24))
-                drawBox3D(c, Vec3(tx, 12f, tz), 2.5f, 26f, 2.5f, 0f, Color(0xFFE2E8F0), Color(0xFF94A3B8), Color(0xFFFFFFFF))
+                drawBox3D(c, Vec3(tx, 12f, tz), 2.5f, 26f, 2.5f, 0f, Color(0xFFE2E8F0), Color(0xFF94A3B8), Color.White)
                 drawBox3D(c, Vec3(tx, 26f, tz), 5.5f, 4f, 5.5f, 0f, NeonCyan, Color(0xFF0284C7), NeonCyan)
                 drawBox3D(c, Vec3(tx, 38f, tz), 0.8f, 16f, 0.8f, 0f, Color.White, Color(0xFFCBD5E1), Color.White)
             })
 
-            // Registon Maydoni (Turquoise Domes & Portal)
+            // Registon
             val rx = -46f
             val rz = -46f
             items.add(Drawable3D(distToCam(rx, rz)) { c ->
@@ -236,29 +253,30 @@ fun SandboxScreen(
                 drawBox3D(c, Vec3(rx + 5f, 9f, rz), 5f, 5f, 5f, 0f, Color(0xFF0284C7), Color(0xFF0369A1), Color(0xFF38BDF8))
             })
 
-            // NPCs & Traffic
+            // NPCs with animated arms & legs
             state.npcs.forEach { npc ->
                 items.add(Drawable3D(distToCam(npc.x, npc.z)) { c ->
                     if (npc.isCar) {
                         draw3DCar(c, npc.x, npc.z, npc.yaw, npc.color, 0f, isVan = false, damaged = false)
                     } else {
-                        drawBox3D(c, Vec3(npc.x, 0f, npc.z), 0.55f, 1.55f, 0.45f, npc.yaw, npc.color, npc.color.copy(alpha = 0.75f), Color.White)
+                        draw3DCharacter(c, npc.x, npc.z, npc.yaw, npc.color, npc.walkPhase)
                     }
                 })
             }
 
-            // Drivable Cars (Gentra, Nexia 2, Damas)
+            // All Road Cars
             state.cars.forEach { car ->
                 items.add(Drawable3D(distToCam(car.x, car.z)) { c ->
                     draw3DCar(c, car.x, car.z, car.yaw, car.color, car.steerAngle, car.isVan, car.hp < 85f)
                 })
             }
 
-            // Player (on foot)
-            if (state.activeCarId == null) {
+            // Player Character with animated arms & legs
+            if (state.activeCarId == null && state.cameraMode != CameraMode.FIRST_PERSON) {
+                val playerCol = if (state.activeCharIndex == 0) NeonCyan else TashkentGold
+                val phase = if (state.isWalking) state.walkPhase else 0f
                 items.add(Drawable3D(distToCam(state.playerX, state.playerZ)) { c ->
-                    drawBox3D(c, Vec3(state.playerX, 0f, state.playerZ), 0.55f, 1.2f, 0.4f, state.playerYaw, NeonCyan, Color(0xFF0284C7), Color(0xFF67E8F9))
-                    drawBox3D(c, Vec3(state.playerX, 1.2f, state.playerZ), 0.4f, 0.45f, 0.4f, state.playerYaw, Color(0xFFFDE68A), Color(0xFFF59E0B), Color(0xFFFEF3C7))
+                    draw3DCharacter(c, state.playerX, state.playerZ, state.playerYaw, playerCol, phase)
                 })
             }
 
@@ -266,7 +284,7 @@ fun SandboxScreen(
             items.forEach { it.draw(this, cam) }
         }
 
-        // Right-side 360 Camera Drag Zone (behind HUD buttons)
+        // Right-side 360 Camera Drag Zone
         Box(
             modifier = Modifier
                 .fillMaxHeight()
@@ -284,164 +302,108 @@ fun SandboxScreen(
                 .testTag("camera_orbit_zone")
         )
 
-        // 2. Top HUD Bar (Vehicle selector, Speed/HP/Plate, Tuning/Radio/Repair)
-        Column(
+        // 2. Minimal Transparent Icon-Only Top HUD (Yozuvlarsiz!)
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    state.cars.forEach { car ->
-                        val selected = state.activeCarId == car.id
-                        FilterChip(
-                            selected = selected,
-                            onClick = { viewModel.selectAndEnterCar(car.id) },
-                            label = {
-                                Text(
-                                    text = car.id.replaceFirstChar { it.uppercase() },
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeonCyan.copy(alpha = 0.25f),
-                                selectedLabelColor = NeonCyan
-                            ),
-                            modifier = Modifier.testTag("car_chip_${car.id}")
-                        )
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(
-                        onClick = { viewModel.toggleRadio() },
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .background(
-                                if (state.radioOn) EmeraldGas.copy(alpha = 0.25f) else SlateSurface,
-                                CircleShape
-                            )
-                            .testTag("radio_toggle_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = "Radio",
-                            tint = if (state.radioOn) EmeraldGas else Color.White
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showTuningDialog = true },
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .background(SlateSurface, CircleShape)
-                            .testTag("tuning_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = "Nomer va Rang",
-                            tint = TashkentGold
-                        )
-                    }
-                }
-            }
-
-            Surface(
-                color = SlateSurface.copy(alpha = 0.88f),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    val speedKmh = ((abs(activeCar?.speed ?: 0f)) * 3.6f).roundToInt()
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "$speedKmh km/h",
-                            color = NeonCyan,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.sp
-                        )
-                        Text(
-                            text = state.statusBanner,
-                            color = Color(0xFFCBD5E1),
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            color = Color.White,
-                            shape = RoundedCornerShape(6.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color.Black)
-                        ) {
-                            Text(
-                                text = "${tuningTargetCar.plateRegion} | ${tuningTargetCar.plateNumber}",
-                                color = Color.Black,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            )
-                        }
-
-                        if (tuningTargetCar.hp < 99f) {
-                            IconButton(
-                                onClick = { viewModel.repairActiveCar() },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(CrimsonBrake.copy(alpha = 0.25f), CircleShape)
-                                    .testTag("repair_car_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Build,
-                                    contentDescription = "Ta'mirlash",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (activeCar != null) {
-                LinearProgressIndicator(
-                    progress = { (activeCar.hp / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(5.dp)
-                        .clip(RoundedCornerShape(99.dp)),
-                    color = when {
-                        activeCar.hp > 60f -> EmeraldGas
-                        activeCar.hp > 30f -> TashkentGold
-                        else -> CrimsonBrake
-                    },
-                    trackColor = SlateSurface
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Camera Mode Button (1st Person / Close / Far)
+                TransparentIconBtn(
+                    icon = Icons.Default.Visibility,
+                    desc = "Kamera rejimi",
+                    active = state.cameraMode == CameraMode.FIRST_PERSON,
+                    onClick = { viewModel.cycleCameraMode() },
+                    modifier = Modifier.testTag("camera_mode_button")
                 )
+
+                // Character Switcher (Cyberpunk Women <-> Wladimir)
+                TransparentIconBtn(
+                    icon = Icons.Default.Person,
+                    desc = "Personaj almashtirish",
+                    active = state.activeCharIndex == 1,
+                    onClick = { viewModel.switchCharacter() },
+                    modifier = Modifier.testTag("switch_char_button")
+                )
+            }
+
+            // Compact Speed & HP Gauge
+            val speedKmh = ((abs(activeCar?.speed ?: 0f)) * 3.6f).roundToInt()
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0xFF0F172A).copy(alpha = 0.28f))
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "$speedKmh",
+                    color = NeonCyan,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 15.sp
+                )
+                Box(
+                    modifier = Modifier
+                        .width(46.dp)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(Color.White.copy(alpha = 0.18f))
+                ) {
+                    val hpRatio = (tuningTargetCar.hp / 100f).coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(hpRatio)
+                            .background(
+                                when {
+                                    tuningTargetCar.hp > 60f -> EmeraldGas
+                                    tuningTargetCar.hp > 30f -> TashkentGold
+                                    else -> CrimsonBrake
+                                }
+                            )
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TransparentIconBtn(
+                    icon = Icons.Default.MusicNote,
+                    desc = "Radio",
+                    active = state.radioOn,
+                    onClick = { viewModel.toggleRadio() },
+                    modifier = Modifier.testTag("radio_toggle_button")
+                )
+                TransparentIconBtn(
+                    icon = Icons.Default.Palette,
+                    desc = "Nomer va Rang",
+                    active = false,
+                    onClick = { showTuningDialog = true },
+                    modifier = Modifier.testTag("tuning_button")
+                )
+                if (tuningTargetCar.hp < 99f) {
+                    TransparentIconBtn(
+                        icon = Icons.Default.Build,
+                        desc = "Ta'mirlash",
+                        active = true,
+                        onClick = { viewModel.repairActiveCar() },
+                        modifier = Modifier.testTag("repair_car_button")
+                    )
+                }
             }
         }
 
-        // 3. Bottom Controls
+        // 3. Bottom Transparent Icon-Only Controls
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom
         ) {
@@ -451,37 +413,35 @@ fun SandboxScreen(
                     modifier = Modifier.testTag("walk_joystick")
                 )
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    HoldControlButton(
-                        label = "◀",
-                        bg = SlateSurface.copy(alpha = 0.85f),
-                        border = NeonCyan,
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    TransparentHoldButton(
                         onHoldChanged = { viewModel.setSteer(left = it) },
+                        border = Color.White.copy(alpha = 0.35f),
                         modifier = Modifier
-                            .size(64.dp)
+                            .size(66.dp)
+                            .clip(CircleShape)
                             .testTag("steer_left_button")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = "Chapga burish",
+                            contentDescription = "Chapga",
                             tint = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
-                    HoldControlButton(
-                        label = "▶",
-                        bg = SlateSurface.copy(alpha = 0.85f),
-                        border = NeonCyan,
+                    TransparentHoldButton(
                         onHoldChanged = { viewModel.setSteer(right = it) },
+                        border = Color.White.copy(alpha = 0.35f),
                         modifier = Modifier
-                            .size(64.dp)
+                            .size(66.dp)
+                            .clip(CircleShape)
                             .testTag("steer_right_button")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = "O'ngga burish",
+                            contentDescription = "O'ngga",
                             tint = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
                 }
@@ -489,58 +449,64 @@ fun SandboxScreen(
 
             Column(
                 horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (state.activeCarId != null || state.nearbyCarId != null) {
-                    Button(
+                    IconButton(
                         onClick = { viewModel.toggleEnterExit() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = TashkentGold,
-                            contentColor = ObsidianBg
-                        ),
-                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(TashkentGold.copy(alpha = 0.38f))
+                            .border(1.5.dp, Color(0xFFFDE68A), CircleShape)
                             .testTag("enter_exit_car_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.DirectionsCar,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (state.activeCarId != null) "TUSHISH" else "MINISH",
-                            fontWeight = FontWeight.Black
+                            contentDescription = "Minish / Tushish",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
 
                 if (activeCar != null) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.Bottom
                     ) {
-                        HoldControlButton(
-                            label = "TORMOZ",
-                            bg = CrimsonBrake.copy(alpha = 0.72f),
-                            border = Color(0xFFFCA5A5),
+                        TransparentHoldButton(
                             onHoldChanged = { viewModel.setBrake(it) },
+                            border = CrimsonBrake.copy(alpha = 0.7f),
                             modifier = Modifier
-                                .width(66.dp)
-                                .height(68.dp)
+                                .width(64.dp)
+                                .height(72.dp)
+                                .clip(RoundedCornerShape(18.dp))
                                 .testTag("brake_pedal_button")
-                        )
-                        HoldControlButton(
-                            label = "GAZ",
-                            bg = EmeraldGas.copy(alpha = 0.78f),
-                            border = Color(0xFF6EE7B7),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Tormoz",
+                                tint = Color.White,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                        TransparentHoldButton(
                             onHoldChanged = { viewModel.setGas(it) },
+                            border = EmeraldGas.copy(alpha = 0.75f),
                             modifier = Modifier
-                                .width(66.dp)
-                                .height(88.dp)
+                                .width(64.dp)
+                                .height(98.dp)
+                                .clip(RoundedCornerShape(18.dp))
                                 .testTag("gas_pedal_button")
-                        )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Gaz",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -557,6 +523,55 @@ fun SandboxScreen(
             }
         )
     }
+}
+
+@Composable
+private fun TransparentIconBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    desc: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(
+                if (active) NeonCyan.copy(alpha = 0.25f) else Color(0xFF0F172A).copy(alpha = 0.26f)
+            )
+            .border(
+                1.5.dp,
+                if (active) NeonCyan else Color.White.copy(alpha = 0.24f),
+                CircleShape
+            )
+    ) {
+        Icon(imageVector = icon, contentDescription = desc, tint = Color.White, modifier = Modifier.size(22.dp))
+    }
+}
+
+private fun DrawScope.draw3DCharacter(
+    cam: Cam3D,
+    x: Float,
+    z: Float,
+    yaw: Float,
+    color: Color,
+    walkPhase: Float
+) {
+    val swing = if (walkPhase != 0f) sin(walkPhase) * 0.25f else 0f
+    val bob = if (walkPhase != 0f) abs(sin(walkPhase)) * 0.06f else 0f
+    // Oyoqlar
+    drawBox3D(cam, Vec3(x - 0.14f, 0f, z + swing), 0.18f, 0.72f, 0.2f, yaw, Color(0xFF1E293B), Color(0xFF0F172A), Color(0xFF334155))
+    drawBox3D(cam, Vec3(x + 0.14f, 0f, z - swing), 0.18f, 0.72f, 0.2f, yaw, Color(0xFF1E293B), Color(0xFF0F172A), Color(0xFF334155))
+    // Tana
+    drawBox3D(cam, Vec3(x, 0.72f + bob, z), 0.46f, 0.6f, 0.26f, yaw, color, color.copy(alpha = 0.8f), color)
+    // Qo'llar (oyoqlarga qarama-qarshi tebranadi)
+    drawBox3D(cam, Vec3(x - 0.34f, 0.78f + bob, z - swing), 0.14f, 0.52f, 0.14f, yaw, color, color.copy(alpha = 0.75f), color)
+    drawBox3D(cam, Vec3(x + 0.34f, 0.78f + bob, z + swing), 0.14f, 0.52f, 0.14f, yaw, color, color.copy(alpha = 0.75f), color)
+    // Bosh
+    drawBox3D(cam, Vec3(x, 1.34f + bob, z), 0.3f, 0.32f, 0.3f, yaw, Color(0xFFFDE68A), Color(0xFFF59E0B), Color(0xFFFEF3C7))
 }
 
 private fun DrawScope.drawRoadStrip(
@@ -589,7 +604,6 @@ private fun DrawScope.drawRoadStrip(
         }
         drawPath(path, color = color)
 
-        // Sariq markaziy chiziq
         if (i % 2 == 0) {
             val lineQuad = if (northSouth) {
                 val z0 = zMin + (zMax - zMin) * t0
@@ -625,9 +639,7 @@ private fun DrawScope.draw3DCar(
     val w = if (isVan) 1.75f else 1.9f
     val l = if (isVan) 3.7f else 4.3f
     val bodyH = if (isVan) 1.0f else 0.7f
-    // Pastki kuzov
     drawBox3D(cam, Vec3(x, 0.3f, z), w, bodyH, l, yaw, color, color.copy(alpha = 0.8f), color)
-    // Shisha kabina
     drawBox3D(
         cam,
         Vec3(x, 0.3f + bodyH, z),
@@ -639,7 +651,6 @@ private fun DrawScope.draw3DCar(
         Color(0xFF1E293B),
         color
     )
-    // 4 ta balon (oldingilari steerAngle bilan buriladi)
     val wheelOffsets = listOf(
         Triple(-w * 0.48f, -l * 0.32f, yaw + steerAngle),
         Triple(w * 0.48f, -l * 0.32f, yaw + steerAngle),
@@ -683,19 +694,19 @@ private fun DrawScope.drawBox3D(
     )
 
     val v = listOf(
-        pt(-hw, 0f, -hl), pt(hw, 0f, -hl), pt(hw, h, -hl), pt(-hw, h, -hl), // 0..3 front (-z)
-        pt(-hw, 0f, hl), pt(hw, 0f, hl), pt(hw, h, hl), pt(-hw, h, hl)      // 4..7 back (+z)
+        pt(-hw, 0f, -hl), pt(hw, 0f, -hl), pt(hw, h, -hl), pt(-hw, h, -hl),
+        pt(-hw, 0f, hl), pt(hw, 0f, hl), pt(hw, h, hl), pt(-hw, h, hl)
     )
 
     val faces = listOf(
-        Triple(listOf(v[0], v[1], v[2], v[3]), frontColor, "f"),
-        Triple(listOf(v[5], v[4], v[7], v[6]), frontColor, "b"),
-        Triple(listOf(v[4], v[0], v[3], v[7]), sideColor, "l"),
-        Triple(listOf(v[1], v[5], v[6], v[2]), sideColor, "r"),
-        Triple(listOf(v[3], v[2], v[6], v[7]), topColor, "t")
+        Pair(listOf(v[0], v[1], v[2], v[3]), frontColor),
+        Pair(listOf(v[5], v[4], v[7], v[6]), frontColor),
+        Pair(listOf(v[4], v[0], v[3], v[7]), sideColor),
+        Pair(listOf(v[1], v[5], v[6], v[2]), sideColor),
+        Pair(listOf(v[3], v[2], v[6], v[7]), topColor)
     )
 
-    val sortedFaces = faces.map { (quad, col, _) ->
+    val sortedFaces = faces.map { (quad, col) ->
         val center = Vec3(
             quad.sumOf { it.x.toDouble() }.toFloat() / 4f,
             quad.sumOf { it.y.toDouble() }.toFloat() / 4f,
@@ -713,7 +724,7 @@ private fun DrawScope.drawBox3D(
             close()
         }
         drawPath(path, color = col)
-        drawPath(path, color = Color.Black.copy(alpha = 0.25f), style = Stroke(width = 1.2f))
+        drawPath(path, color = Color.Black.copy(alpha = 0.2f), style = Stroke(width = 1f))
     }
 }
 
@@ -728,10 +739,10 @@ private fun VirtualJoystick(
 
     Box(
         modifier = modifier
-            .size(122.dp)
+            .size(120.dp)
             .clip(CircleShape)
-            .background(SlateSurface.copy(alpha = 0.65f))
-            .border(2.dp, NeonCyan.copy(alpha = 0.55f), CircleShape)
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.5.dp, Color.White.copy(alpha = 0.25f), CircleShape)
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragEnd = {
@@ -765,26 +776,23 @@ private fun VirtualJoystick(
                 .offset { IntOffset(knobX.roundToInt(), knobY.roundToInt()) }
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(NeonCyan)
-                .border(2.dp, Color.White, CircleShape)
+                .background(Color.White.copy(alpha = 0.35f))
+                .border(1.5.dp, Color.White.copy(alpha = 0.7f), CircleShape)
         )
     }
 }
 
 @Composable
-private fun HoldControlButton(
-    label: String,
-    bg: Color,
-    border: Color,
+private fun TransparentHoldButton(
     onHoldChanged: (Boolean) -> Unit,
+    border: Color,
     modifier: Modifier = Modifier,
-    content: (@Composable () -> Unit)? = null
+    content: @Composable () -> Unit
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(bg)
-            .border(2.dp, border, RoundedCornerShape(16.dp))
+            .background(Color(0xFF0F172A).copy(alpha = 0.24f))
+            .border(1.5.dp, border, RoundedCornerShape(18.dp))
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
@@ -799,16 +807,7 @@ private fun HoldControlButton(
             },
         contentAlignment = Alignment.Center
     ) {
-        if (content != null) {
-            content()
-        } else {
-            Text(
-                text = label,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-        }
+        content()
     }
 }
 
@@ -835,7 +834,7 @@ private fun TuningDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = SlateSurface,
-        title = { Text("${car.name}: Nomer & Rang", color = NeonCyan, fontWeight = FontWeight.Bold) },
+        title = { Text("${car.name}", color = NeonCyan, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(
@@ -876,13 +875,12 @@ private fun TuningDialog(
                     OutlinedTextField(
                         value = number,
                         onValueChange = { number = it.take(9).uppercase() },
-                        label = { Text("Davlat raqami") },
+                        label = { Text("Raqam") },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                 }
 
-                Text("Kuzov rangi:", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     palette.forEach { col ->
                         val isSel = col == selectedColor
@@ -907,12 +905,12 @@ private fun TuningDialog(
                 onClick = { onApply(region, number, selectedColor) },
                 modifier = Modifier.testTag("apply_tuning_button")
             ) {
-                Text("Saqlash")
+                Text("OK")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Bekor qilish")
+                Text("✕")
             }
         }
     )

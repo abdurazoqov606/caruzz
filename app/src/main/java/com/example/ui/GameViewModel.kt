@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+enum class CameraMode { CLOSE, FAR, FIRST_PERSON }
+
 data class CarEntity(
     val id: String,
     val name: String,
@@ -24,7 +26,7 @@ data class CarEntity(
     val z: Float,
     val yaw: Float = 0f,
     val speed: Float = 0f,
-    val maxSpeed: Float = 26f,
+    val maxSpeed: Float = 36f,
     val steerAngle: Float = 0f,
     val wheelSpin: Float = 0f,
     val color: Color = Color(0xFFF8FAFC),
@@ -40,6 +42,7 @@ data class NpcEntity(
     val z: Float,
     val yaw: Float,
     val speed: Float,
+    val walkPhase: Float,
     val isCar: Boolean,
     val color: Color
 )
@@ -55,8 +58,12 @@ data class GameUiState(
     val playerX: Float = 0f,
     val playerZ: Float = 14f,
     val playerYaw: Float = 0f,
+    val walkPhase: Float = 0f,
+    val isWalking: Boolean = false,
+    val activeCharIndex: Int = 0, // 0: Cyberpunk Women, 1: Wladimir
+    val cameraMode: CameraMode = CameraMode.CLOSE,
     val cameraYaw: Float = 0f,
-    val cameraPitch: Float = 0.28f,
+    val cameraPitch: Float = 0.24f,
     val activeCarId: String? = null,
     val nearbyCarId: String? = null,
     val cars: List<CarEntity> = defaultCars(),
@@ -68,60 +75,32 @@ data class GameUiState(
     val steerLeft: Boolean = false,
     val steerRight: Boolean = false,
     val radioOn: Boolean = false,
-    val statusBanner: String = "3D Preview • Haqiqiy GLB APK: uzbek-city-gta/",
     val checklist: List<ChecklistItem> = defaultChecklist()
 )
 
 private fun defaultCars() = listOf(
-    CarEntity(
-        id = "gentra",
-        name = "Chevrolet Gentra",
-        x = -5.5f,
-        z = 4f,
-        maxSpeed = 26f,
-        color = Color(0xFFF8FAFC),
-        plateRegion = "01",
-        plateNumber = "A 777 AA"
-    ),
-    CarEntity(
-        id = "nexia",
-        name = "Daewoo Nexia 2",
-        x = 5.5f,
-        z = -4f,
-        maxSpeed = 24f,
-        color = Color(0xFF94A3B8),
-        plateRegion = "01",
-        plateNumber = "O 070 OO"
-    ),
-    CarEntity(
-        id = "damas",
-        name = "Chevrolet Damas",
-        x = -5.5f,
-        z = -15f,
-        maxSpeed = 19f,
-        color = Color(0xFFF8FAFC),
-        plateRegion = "30",
-        plateNumber = "D 505 DA",
-        isVan = true
-    )
+    CarEntity("gentra", "Chevrolet Gentra", -4.5f, 5f, maxSpeed = 38f, color = Color(0xFFF8FAFC), plateRegion = "01", plateNumber = "A 777 AA"),
+    CarEntity("nexia", "Daewoo Nexia 2", 4.5f, -6f, maxSpeed = 35f, color = Color(0xFF94A3B8), plateRegion = "01", plateNumber = "O 070 OO"),
+    CarEntity("damas", "Chevrolet Damas", -4.5f, -18f, maxSpeed = 28f, color = Color(0xFFF8FAFC), plateRegion = "30", plateNumber = "D 505 DA", isVan = true),
+    CarEntity("matiz", "Daewoo Matiz Turbo", 4.5f, 18f, maxSpeed = 36f, color = Color(0xFF10B981), plateRegion = "01", plateNumber = "M 101 MA"),
+    CarEntity("malibu", "Chevrolet Malibu Premier", -4.5f, 30f, maxSpeed = 44f, color = Color(0xFF111827), plateRegion = "01", plateNumber = "Z 001 ZZ")
 )
 
 private fun defaultNpcs() = listOf(
-    NpcEntity(1, -11f, -12f, 0.4f, 1.8f, isCar = false, color = Color(0xFF38BDF8)),
-    NpcEntity(2, 11f, 8f, 2.2f, 1.7f, isCar = false, color = Color(0xFFF472B6)),
-    NpcEntity(3, -10f, 18f, -0.8f, 1.9f, isCar = false, color = Color(0xFFA78BFA)),
-    NpcEntity(4, 13f, -22f, 3.0f, 1.6f, isCar = false, color = Color(0xFF34D399)),
-    NpcEntity(5, 3.2f, -45f, 0f, 9f, isCar = true, color = Color(0xFFEF4444)),
-    NpcEntity(6, -3.2f, 45f, PI.toFloat(), 8.5f, isCar = true, color = Color(0xFF3B82F6))
+    NpcEntity(1, -11f, -12f, 0.4f, 1.9f, 0f, isCar = false, color = Color(0xFF38BDF8)),
+    NpcEntity(2, 11f, 8f, 2.2f, 1.8f, 1.2f, isCar = false, color = Color(0xFFF472B6)),
+    NpcEntity(3, -10f, 18f, -0.8f, 2.0f, 2.4f, isCar = false, color = Color(0xFFA78BFA)),
+    NpcEntity(4, 13f, -22f, 3.0f, 1.7f, 0.7f, isCar = false, color = Color(0xFF34D399)),
+    NpcEntity(5, 3.2f, -45f, 0f, 13f, 0f, isCar = true, color = Color(0xFFEF4444)),
+    NpcEntity(6, -3.2f, 45f, PI.toFloat(), 12.5f, 0f, isCar = true, color = Color(0xFF3B82F6))
 )
 
 private fun defaultChecklist() = listOf(
-    ChecklistItem("vite", "vite.config.js (base: './')", "Offline APK ichida ./models/ va ./draco/ ishlashi uchun", true),
-    ChecklistItem("draco", "modelLoader.js + DRACOLoader", "Box3 avto-masshtab, y=0, balon aylanishi, nomer va pachoq", true),
-    ChecklistItem("engine", "main.js (Three.js + Fizika)", "logarithmicDepthBuffer, Raycaster getGroundY, multi-touch", true),
-    ChecklistItem("hud", "index.html (Mobil HUD)", "Chap joystik, o‘ng 360 kamera, gaz/tormoz, nomer & rang", true),
-    ChecklistItem("ci", ".github/workflows/build-apk.yml", "Draco nusxalash + Capacitor Android + fullSensor + APK", true),
-    ChecklistItem("glb", "public/models/*.glb + mp3", "O‘zingizning .glb va 7440512639.mp3 fayllaringizni joylang", false)
+    ChecklistItem("manifest", "models-manifest.json", "Malibu, Matiz, Gentra, Nexia, Damas, Wladimir, TV Tower avtomatik topiladi", true),
+    ChecklistItem("perf", "60 FPS Silliq Optimizatsiya", "Baked O(1) height grid + contact shadows + PMREM 9D osmon aks-sadosi", true),
+    ChecklistItem("sound", "soundEngine.js (Offline WebAudio)", "Motor RPM, signal, to‘qnashuv, qadam, eshik va radio musiqasi", true),
+    ChecklistItem("cam", "3 xil Kamera + Shaffof Tugmalar", "Ko‘z bilan (1-shaxs), Yaqin va Uzoq kamera + yozuvsiz shaffof tugmalar", true),
+    ChecklistItem("ci", ".github/workflows/build-apk.yml", "Draco nusxalash + Capacitor Android + fullSensor + APK", true)
 )
 
 class GameViewModel : ViewModel() {
@@ -148,7 +127,8 @@ class GameViewModel : ViewModel() {
             var pz = state.playerZ
             var pYaw = state.playerYaw
             var camYaw = state.cameraYaw
-            var status = state.statusBanner
+            var walkPhase = state.walkPhase
+            var walking = false
 
             val cars = state.cars.toMutableList()
             val activeIdx = cars.indexOfFirst { it.id == state.activeCarId }
@@ -160,20 +140,20 @@ class GameViewModel : ViewModel() {
 
                 var spd = car.speed
                 when {
-                    state.gasPressed -> spd += 14f * dt
-                    state.brakePressed -> spd -= if (spd > 0.5f) 24f * dt else 10f * dt
+                    state.gasPressed -> spd += 20f * dt
+                    state.brakePressed -> spd -= if (spd > 0.5f) 32f * dt else 13f * dt
                     else -> spd *= 0.965f
                 }
-                spd = spd.coerceIn(-9f, car.maxSpeed)
+                spd = spd.coerceIn(-14f, car.maxSpeed)
 
                 var yaw = car.yaw
                 if (abs(spd) > 0.25f) {
                     val dir = if (spd >= 0f) 1f else -1f
-                    val speedFactor = (abs(spd) / 6f).coerceAtMost(1f)
-                    yaw += newSteer * 2.1f * speedFactor * dir * dt
+                    val speedFactor = (abs(spd) / 6.5f).coerceAtMost(1f)
+                    yaw += newSteer * 2.25f * speedFactor * dir * dt
                 }
 
-                // Mashina forward yo'nalishi: (-sin(yaw), -cos(yaw))
+                // Gaz bosganda oldinga (-Z when yaw=0)
                 var nx = car.x - sin(yaw) * spd * dt
                 var nz = car.z - cos(yaw) * spd * dt
                 var hp = car.hp
@@ -182,10 +162,7 @@ class GameViewModel : ViewModel() {
                 if (abs(nx) > limit || abs(nz) > limit) {
                     nx = nx.coerceIn(-limit, limit)
                     nz = nz.coerceIn(-limit, limit)
-                    if (abs(spd) > 6f) {
-                        hp = (hp - abs(spd) * 1.2f).coerceAtLeast(10f)
-                        status = "To‘qnashuv! Kuzov pachoq bo‘ldi!"
-                    }
+                    if (abs(spd) > 6f) hp = (hp - abs(spd) * 0.9f).coerceAtLeast(10f)
                     spd *= -0.35f
                 }
 
@@ -198,10 +175,7 @@ class GameViewModel : ViewModel() {
                         val pushZ = (nz - other.z) / dist
                         nx += pushX * (4.2f - dist)
                         nz += pushZ * (4.2f - dist)
-                        if (abs(spd) > 5f) {
-                            hp = (hp - abs(spd) * 1.4f).coerceAtLeast(10f)
-                            status = "${other.name} bilan to‘qnashuv! (Pachoq)"
-                        }
+                        if (abs(spd) > 5f) hp = (hp - abs(spd) * 1.1f).coerceAtLeast(10f)
                         spd *= -0.35f
                     }
                 }
@@ -219,13 +193,15 @@ class GameViewModel : ViewModel() {
                 px = nx
                 pz = nz
                 pYaw = yaw
-                // Mashina haydaganda kamera asta orqadan ergashadi
-                val diff = atan2(sin(yaw - camYaw), cos(yaw - camYaw))
-                camYaw += diff * dt * 2.4f
+                if (abs(spd) > 1.2f) {
+                    val diff = atan2(sin(yaw - camYaw), cos(yaw - camYaw))
+                    camYaw += diff * dt * 2.8f
+                }
             } else {
-                // Piyoda yurish: dy < 0 (tepa) kameraga nisbatan OLDINGA yuradi!
                 val mag = hypot(state.joyX, state.joyY)
                 if (mag > 0.08f) {
+                    walking = true
+                    walkPhase += dt * 11f
                     val walkSpeed = 7.5f
                     val fwdX = -sin(camYaw)
                     val fwdZ = -cos(camYaw)
@@ -264,18 +240,19 @@ class GameViewModel : ViewModel() {
                     nx = nx.coerceIn(-85f, 85f)
                     nz = nz.coerceIn(-85f, 85f)
                 }
-                npc.copy(x = nx, z = nz, yaw = nyaw)
+                npc.copy(x = nx, z = nz, yaw = nyaw, walkPhase = npc.walkPhase + dt * 10f)
             }
 
             state.copy(
                 playerX = px,
                 playerZ = pz,
                 playerYaw = pYaw,
+                walkPhase = walkPhase,
+                isWalking = walking,
                 cameraYaw = camYaw,
                 nearbyCarId = nearby,
                 cars = cars,
-                npcs = updatedNpcs,
-                statusBanner = status
+                npcs = updatedNpcs
             )
         }
     }
@@ -288,8 +265,25 @@ class GameViewModel : ViewModel() {
         _uiState.update {
             it.copy(
                 cameraYaw = it.cameraYaw + deltaYaw,
-                cameraPitch = (it.cameraPitch + deltaPitch).coerceIn(0.08f, 0.95f)
+                cameraPitch = (it.cameraPitch + deltaPitch).coerceIn(-0.2f, 0.95f)
             )
+        }
+    }
+
+    fun cycleCameraMode() {
+        _uiState.update {
+            val next = when (it.cameraMode) {
+                CameraMode.CLOSE -> CameraMode.FAR
+                CameraMode.FAR -> CameraMode.FIRST_PERSON
+                CameraMode.FIRST_PERSON -> CameraMode.CLOSE
+            }
+            it.copy(cameraMode = next)
+        }
+    }
+
+    fun switchCharacter() {
+        _uiState.update {
+            if (it.activeCarId != null) it else it.copy(activeCharIndex = (it.activeCharIndex + 1) % 2)
         }
     }
 
@@ -306,19 +300,6 @@ class GameViewModel : ViewModel() {
             it.copy(
                 steerLeft = left ?: it.steerLeft,
                 steerRight = right ?: it.steerRight
-            )
-        }
-    }
-
-    fun selectAndEnterCar(carId: String) {
-        _uiState.update { state ->
-            val car = state.cars.find { it.id == carId } ?: return@update state
-            state.copy(
-                activeCarId = carId,
-                playerX = car.x,
-                playerZ = car.z,
-                cameraYaw = car.yaw,
-                statusBanner = "${car.name} rulidasiz!"
             )
         }
     }
@@ -340,15 +321,13 @@ class GameViewModel : ViewModel() {
                     gasPressed = false,
                     brakePressed = false,
                     steerLeft = false,
-                    steerRight = false,
-                    statusBanner = "Piyoda rejimidasiz"
+                    steerRight = false
                 )
             } else if (state.nearbyCarId != null) {
                 val car = state.cars.find { it.id == state.nearbyCarId }
                 state.copy(
                     activeCarId = state.nearbyCarId,
-                    cameraYaw = car?.yaw ?: state.cameraYaw,
-                    statusBanner = "${car?.name ?: "Mashina"} rulidasiz!"
+                    cameraYaw = car?.yaw ?: state.cameraYaw
                 )
             } else {
                 state
@@ -367,10 +346,7 @@ class GameViewModel : ViewModel() {
                     car
                 }
             }
-            state.copy(
-                cars = updated,
-                statusBanner = "Nomer $cleanRegion $cleanNumber va rang saqlandi!"
-            )
+            state.copy(cars = updated)
         }
     }
 
@@ -380,18 +356,12 @@ class GameViewModel : ViewModel() {
             val updated = state.cars.map { c ->
                 if (c.id == targetId) c.copy(hp = 100f) else c
             }
-            state.copy(cars = updated, statusBanner = "Mashina to‘liq ta’mirlandi!")
+            state.copy(cars = updated)
         }
     }
 
     fun toggleRadio() {
-        _uiState.update { state ->
-            val next = !state.radioOn
-            state.copy(
-                radioOn = next,
-                statusBanner = if (next) "Radio yoqildi (7440512639.mp3)" else "Radio o‘chirildi"
-            )
-        }
+        _uiState.update { it.copy(radioOn = !it.radioOn) }
     }
 
     fun toggleChecklistItem(id: String) {

@@ -15,6 +15,18 @@ jobs:
         with:
           lfs: true
 
+      - name: Detect Project Directory
+        id: proj
+        run: |
+          if [ -f "package.json" ]; then
+            echo "dir=." >> $GITHUB_OUTPUT
+          elif [ -f "uzbek-city-gta/package.json" ]; then
+            echo "dir=uzbek-city-gta" >> $GITHUB_OUTPUT
+          else
+            echo "::error::package.json topilmadi!"
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -27,54 +39,42 @@ jobs:
           java-version: '17'
 
       - name: Install NPM Dependencies
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: npm install
 
-      - name: Copy Three.js Draco Decoders (Offline GLB Support)
+      - name: Copy Three.js Draco Decoders & Generate Models Manifest
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: |
-          mkdir -p public/draco
+          mkdir -p public/draco public/models
           cp -r node_modules/three/examples/jsm/libs/draco/* public/draco/
+          python3 -c 'import os, json; files = sorted(os.listdir("public/models")); open("public/models-manifest.json", "w").write(json.dumps(files))'
+          cat public/models-manifest.json
 
       - name: Build Vite Web Bundle
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: npm run build
 
-      - name: Ensure Draco & Models in dist
+      - name: Ensure Draco in dist
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: |
           mkdir -p dist/draco
           cp -r public/draco/* dist/draco/
-          ls -la dist/draco
-          ls -la dist/models || true
 
-      - name: Add & Sync Capacitor Android Platform
+      - name: Add & Sync Capacitor Android
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: |
           if [ ! -d "android" ]; then
             npx cap add android
           fi
           npx cap sync android
 
-      - name: Configure AndroidManifest Orientation & Hardware Acceleration
+      - name: Set Screen Orientation in AndroidManifest
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          python3 - <<'EOF'
-          import re
-          path = "android/app/src/main/AndroidManifest.xml"
-          with open(path, "r", encoding="utf-8") as f:
-              xml = f.read()
+          python3 -c 'import re; p="android/app/src/main/AndroidManifest.xml"; s=open(p).read(); s=s if "hardwareAccelerated" in s else s.replace("<application", "<application android:hardwareAccelerated=\"true\"", 1); s=re.sub(r"android:screenOrientation=\"[^\"]*\"", "android:screenOrientation=\"fullSensor\"", s) if "screenOrientation" in s else s.replace("<activity", "<activity android:screenOrientation=\"fullSensor\"", 1); open(p,"w").write(s)'
 
-          if 'android:hardwareAccelerated' not in xml:
-              xml = xml.replace('<application', '<application android:hardwareAccelerated="true"', 1)
-
-          if 'android:screenOrientation=' in xml:
-              xml = re.sub(r'android:screenOrientation="[^"]*"', 'android:screenOrientation="fullSensor"', xml)
-          else:
-              xml = xml.replace('<activity', '<activity\n            android:screenOrientation="fullSensor"', 1)
-
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(xml)
-          print("Updated AndroidManifest.xml successfully.")
-          EOF
-
-      - name: Build Debug APK with Gradle
-        working-directory: android
+      - name: Build Debug APK
+        working-directory: ${{ steps.proj.outputs.dir }}/android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
@@ -83,4 +83,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Uzbek-City-GTA-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.proj.outputs.dir }}/android/app/build/outputs/apk/debug/app-debug.apk
